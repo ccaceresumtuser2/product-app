@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+
+      - name: Instalar Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      # Desde Windows, git puede subir mvnw sin permiso de ejecución
+      - name: Dar permiso de ejecución a mvnw
+        run: chmod +x mvnw
+
+      # Los tests usan H2 en memoria (perfil test), no necesitan PostgreSQL
+      - name: Ejecutar tests
+        run: ./mvnw -B test
+
+      - name: Publicar reportes de tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reportes-tests
+          path: target/surefire-reports/
