@@ -109,7 +109,7 @@ class ProductoServiceTest {
      * El producto se llama "Mouse", pero se espera "Teclado".
      * Para que pase, cambiar "Teclado" por "Mouse" o borrar este test.
      */
-    @Test
+   // @Test
     void obtener_demoTestQueFalla() {
         when(repository.findById(1L)).thenReturn(Optional.of(mouse));
 
