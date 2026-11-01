@@ -19,9 +19,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Test de integración: levanta la aplicación completa (controller -> service -> repository -> H2)
  * sin mocks y recorre el CRUD por HTTP.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-@ActiveProfiles("test")
+@SpringBootTest          // contexto completo de Spring, igual que en producción
+@AutoConfigureMockMvc    // permite usar MockMvc contra ese contexto
+@ActiveProfiles("test")  // base H2 en memoria en lugar de PostgreSQL
 class ProductoIntegrationTest {
 
     private static final String URL = "/api/productos";
@@ -29,9 +29,11 @@ class ProductoIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
+    /** Se usa para revisar directamente qué quedó guardado en la base. */
     @Autowired
     private ProductoRepository repository;
 
+    /** A diferencia de @DataJpaTest, aquí no hay rollback automático: se limpia a mano. */
     @BeforeEach
     void limpiar() {
         repository.deleteAll();
@@ -48,6 +50,7 @@ class ProductoIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").isNumber());
 
+        // id generado por la base, leído directamente
         Long id = repository.findAll().getFirst().getId();
 
         // Obtener
@@ -69,6 +72,7 @@ class ProductoIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nombre").value("Mouse Pro"));
 
+        // el cambio quedó persistido en la base
         assertThat(repository.findById(id)).get()
                 .satisfies(p -> assertThat(p.getStock()).isEqualTo(3));
 
@@ -76,6 +80,7 @@ class ProductoIntegrationTest {
         mockMvc.perform(delete(URL + "/" + id))
                 .andExpect(status().isNoContent());
 
+        // ya no existe ni por HTTP ni en la base
         mockMvc.perform(get(URL + "/" + id))
                 .andExpect(status().isNotFound());
         assertThat(repository.count()).isZero();
@@ -90,6 +95,7 @@ class ProductoIntegrationTest {
                                 """))
                 .andExpect(status().isBadRequest());
 
+        // la validación falló antes de llegar a la base
         assertThat(repository.count()).isZero();
     }
 }

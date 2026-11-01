@@ -228,7 +228,7 @@ Cada capa se prueba aislada, reemplazando la capa de abajo por un **mock de Mock
 
 ## CI (GitHub Actions)
 
-El workflow [.github/workflows/ci.yml](.github/workflows/ci.yml) ejecuta los tests automáticamente en GitHub en cada `push` a `main`/`master` y en cada pull request:
+El workflow [.github/workflows/ci.yml](.github/workflows/ci.yml) ejecuta los tests automáticamente en GitHub en cada `push` a `main`, `master` o `developer`, y en cada pull request:
 
 1. Descarga el código.
 2. Instala Java 21 (Temurin), con caché de dependencias Maven (`cache: maven`): la primera ejecución descarga las librerías y las guarda; las siguientes las restauran desde la caché y no las vuelven a bajar mientras el `pom.xml` no cambie.

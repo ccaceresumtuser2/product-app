@@ -23,18 +23,26 @@ import static org.mockito.Mockito.*;
 /**
  * Test unitario de la capa de servicio.
  * No levanta Spring: el repositorio es un mock de Mockito.
+ *
+ * Patrón de cada test:
+ *   1. Preparar: con when(...).thenReturn(...) se define qué responde el mock.
+ *   2. Ejecutar: se llama al método del servicio.
+ *   3. Verificar: assertThat(...) revisa el resultado y verify(...) cómo se usó el mock.
  */
-@ExtendWith(MockitoExtension.class)
+@ExtendWith(MockitoExtension.class) // habilita @Mock e @InjectMocks en JUnit 5
 class ProductoServiceTest {
 
+    /** Repositorio falso: no toca ninguna base de datos. */
     @Mock
     private ProductoRepository repository;
 
+    /** Servicio real; Mockito le inyecta el mock por constructor. */
     @InjectMocks
     private ProductoService service;
 
     private Producto mouse;
 
+    /** Se ejecuta antes de cada test: producto de ejemplo "ya guardado" (con id). */
     @BeforeEach
     void setUp() {
         mouse = Producto.builder()
@@ -42,6 +50,8 @@ class ProductoServiceTest {
                 .precio(new BigDecimal("15990")).stock(10)
                 .build();
     }
+
+    // ---------- listar ----------
 
     @Test
     void listar_sinFiltro_usaFindAll() {
@@ -51,6 +61,7 @@ class ProductoServiceTest {
 
         assertThat(resultado).containsExactly(mouse);
         verify(repository).findAll();
+        // sin filtro no debe usarse la búsqueda por nombre
         verify(repository, never()).findByNombreContainingIgnoreCase(any());
     }
 
@@ -60,6 +71,7 @@ class ProductoServiceTest {
 
         service.listar("   ");
 
+        // un filtro con solo espacios se trata como "sin filtro"
         verify(repository).findAll();
     }
 
@@ -73,6 +85,8 @@ class ProductoServiceTest {
         verify(repository, never()).findAll();
     }
 
+    // ---------- obtener ----------
+
     @Test
     void obtener_existente_retornaProducto() {
         when(repository.findById(1L)).thenReturn(Optional.of(mouse));
@@ -82,6 +96,7 @@ class ProductoServiceTest {
 
     @Test
     void obtener_inexistente_lanzaExcepcion() {
+        // Optional.empty() simula que el id no existe en la base
         when(repository.findById(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.obtener(99L))
@@ -89,20 +104,26 @@ class ProductoServiceTest {
                 .hasMessage("Producto 99 no encontrado");
     }
 
+    // ---------- crear ----------
+
     @Test
     void crear_ignoraIdRecibido_yGuarda() {
         Producto nuevo = Producto.builder()
                 .id(50L).nombre("Teclado").precio(BigDecimal.TEN).stock(5)
                 .build();
+        // el mock devuelve el mismo objeto que recibe
         when(repository.save(any(Producto.class))).thenAnswer(inv -> inv.getArgument(0));
 
         service.crear(nuevo);
 
+        // ArgumentCaptor captura lo que se le pasó a save() para inspeccionarlo
         ArgumentCaptor<Producto> captor = ArgumentCaptor.forClass(Producto.class);
         verify(repository).save(captor.capture());
-        assertThat(captor.getValue().getId()).isNull();
+        assertThat(captor.getValue().getId()).isNull(); // el id 50 se descartó
         assertThat(captor.getValue().getNombre()).isEqualTo("Teclado");
     }
+
+    // ---------- actualizar ----------
 
     @Test
     void actualizar_existente_copiaDatosYGuarda() {
@@ -115,6 +136,7 @@ class ProductoServiceTest {
 
         Producto resultado = service.actualizar(1L, datos);
 
+        // conserva el id original y toma el resto de los campos nuevos
         assertThat(resultado.getId()).isEqualTo(1L);
         assertThat(resultado.getNombre()).isEqualTo("Mouse Pro");
         assertThat(resultado.getDescripcion()).isEqualTo("Gamer");
@@ -130,6 +152,8 @@ class ProductoServiceTest {
                 .isInstanceOf(RecursoNoEncontradoException.class);
         verify(repository, never()).save(any());
     }
+
+    // ---------- eliminar ----------
 
     @Test
     void eliminar_existente_borra() {
