@@ -170,6 +170,14 @@ Ejecutar solo una clase:
 .\mvnw.cmd test -Dtest=ProductoServiceTest
 ```
 
+Maven guarda las librerías en `~/.m2/repository` y solo las descarga la primera vez. Si ya están descargadas, se puede usar el modo offline (`-o`), que no consulta internet y es más rápido:
+
+```
+.\mvnw.cmd -o test
+```
+
+Si falta alguna librería, el modo offline falla; en ese caso se ejecuta una vez sin `-o` para descargarla.
+
 ### Estrategia: un test por capa
 
 ```
@@ -223,7 +231,7 @@ Cada capa se prueba aislada, reemplazando la capa de abajo por un **mock de Mock
 El workflow [.github/workflows/ci.yml](.github/workflows/ci.yml) ejecuta los tests automáticamente en GitHub en cada `push` a `main`/`master` y en cada pull request:
 
 1. Descarga el código.
-2. Instala Java 21 (Temurin), con caché de dependencias Maven.
+2. Instala Java 21 (Temurin), con caché de dependencias Maven (`cache: maven`): la primera ejecución descarga las librerías y las guarda; las siguientes las restauran desde la caché y no las vuelven a bajar mientras el `pom.xml` no cambie.
 3. Ejecuta `./mvnw -B test`.
 4. Sube los reportes de `target/surefire-reports/` como artefacto `reportes-tests`, incluso si algún test falla.
 

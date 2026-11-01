@@ -20,7 +20,8 @@ public class ProductoService {
         if (nombre == null || nombre.isBlank()) {
             return repository.findAll();
         }
-        return repository.findByNombreContainingIgnoreCase(nombre);
+        //return repository.findByNombreContainingIgnoreCase(nombre);
+        return repository.findAll();
     }
 
     @Transactional(readOnly = true)
