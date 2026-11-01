@@ -104,6 +104,20 @@ class ProductoServiceTest {
                 .hasMessage("Producto 99 no encontrado");
     }
 
+    /**
+     * TEST QUE FALLA A PROPÓSITO (demo).
+     * El producto se llama "Mouse", pero se espera "Teclado".
+     * Para que pase, cambiar "Teclado" por "Mouse" o borrar este test.
+     */
+    @Test
+    void obtener_demoTestQueFalla() {
+        when(repository.findById(1L)).thenReturn(Optional.of(mouse));
+
+        Producto resultado = service.obtener(1L);
+
+        assertThat(resultado.getNombre()).isEqualTo("Teclado");
+    }
+
     // ---------- crear ----------
 
     @Test
