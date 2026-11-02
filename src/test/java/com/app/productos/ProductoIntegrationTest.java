@@ -19,9 +19,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Test de integración: levanta la aplicación completa (controller -> service -> repository -> H2)
  * sin mocks y recorre el CRUD por HTTP.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-@ActiveProfiles("test")
+@SpringBootTest          // contexto completo de Spring, igual que en producción
+@AutoConfigureMockMvc    // permite usar MockMvc contra ese contexto
+@ActiveProfiles("test")  // base H2 en memoria en lugar de PostgreSQL
 class ProductoIntegrationTest {
 
     private static final String URL = "/api/productos";
@@ -29,9 +29,11 @@ class ProductoIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
+    /** Se usa para revisar directamente qué quedó guardado en la base. */
     @Autowired
     private ProductoRepository repository;
 
+    /** A diferencia de @DataJpaTest, aquí no hay rollback automático: se limpia a mano. */
     @BeforeEach
     void limpiar() {
         repository.deleteAll();
@@ -46,19 +48,26 @@ class ProductoIntegrationTest {
                                 {"nombre":"Mouse","descripcion":"Inalámbrico","precio":15990,"stock":10}
                                 """))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").isNumber());
+                .andExpect(jsonPath("$.status").value("success"))
+                .andExpect(jsonPath("$.data.id").isNumber());
 
+        // id generado por la base, leído directamente
         Long id = repository.findAll().getFirst().getId();
 
         // Obtener
         mockMvc.perform(get(URL + "/" + id))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.nombre").value("Mouse"));
+                .andExpect(jsonPath("$.data.nombre").value("Mouse"));
 
         // Listar con filtro
         mockMvc.perform(get(URL).param("nombre", "mou"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(1)));
+                .andExpect(jsonPath("$.data", hasSize(1)));
+
+        // Listar por rango de precio (15990 está dentro)
+        mockMvc.perform(get(URL + "/precio").param("min", "10000").param("max", "20000"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", hasSize(1)));
 
         // Actualizar
         mockMvc.perform(put(URL + "/" + id)
@@ -67,17 +76,22 @@ class ProductoIntegrationTest {
                                 {"nombre":"Mouse Pro","precio":29990,"stock":3}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.nombre").value("Mouse Pro"));
+                .andExpect(jsonPath("$.data.nombre").value("Mouse Pro"));
 
+        // el cambio quedó persistido en la base
         assertThat(repository.findById(id)).get()
                 .satisfies(p -> assertThat(p.getStock()).isEqualTo(3));
 
         // Eliminar
         mockMvc.perform(delete(URL + "/" + id))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Producto eliminado"));
 
+        // ya no existe ni por HTTP ni en la base
         mockMvc.perform(get(URL + "/" + id))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value("error"))
+                .andExpect(jsonPath("$.code").value(404));
         assertThat(repository.count()).isZero();
     }
 
@@ -90,6 +104,7 @@ class ProductoIntegrationTest {
                                 """))
                 .andExpect(status().isBadRequest());
 
+        // la validación falló antes de llegar a la base
         assertThat(repository.count()).isZero();
     }
 }
