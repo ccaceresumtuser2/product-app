@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -30,6 +31,19 @@ public class ProductoService {
             return repository.findAll();
         }
         return repository.findByNombreContainingIgnoreCase(nombre);
+    }
+
+    /**
+     * Lista los productos con precio entre {@code min} y {@code max}, ambos incluidos.
+     *
+     * @throws IllegalArgumentException si {@code min} es mayor que {@code max} (se responde 400)
+     */
+    @Transactional(readOnly = true)
+    public List<Producto> listarPorRangoPrecio(BigDecimal min, BigDecimal max) {
+        if (min.compareTo(max) > 0) {
+            throw new IllegalArgumentException("El precio mínimo no puede ser mayor que el máximo");
+        }
+        return repository.findByPrecioBetweenOrderByPrecioAsc(min, max);
     }
 
     /**

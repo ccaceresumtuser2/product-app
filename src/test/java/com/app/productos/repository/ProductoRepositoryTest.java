@@ -58,10 +58,33 @@ class ProductoRepositoryTest {
         assertThat(repository.findByNombreContainingIgnoreCase("silla")).isEmpty();
     }
 
+    @Test
+    void findByPrecioBetween_incluyeExtremos_yOrdenaPorPrecio() {
+        repository.deleteAll();
+        repository.saveAll(List.of(
+                producto("Monitor", "150000"),
+                producto("Cable", "5000"),
+                producto("Mouse", "15990"),
+                producto("Teclado", "30000")));
+
+        List<Producto> resultado = repository.findByPrecioBetweenOrderByPrecioAsc(
+                new BigDecimal("5000"), new BigDecimal("30000"));
+
+        // 5000 y 30000 son los extremos: BETWEEN los incluye; el Monitor queda fuera
+        assertThat(resultado)
+                .extracting(Producto::getNombre)
+                .containsExactly("Cable", "Mouse", "Teclado");
+    }
+
     /** Crea un producto válido con el nombre indicado. */
     private static Producto producto(String nombre) {
+        return producto(nombre, "1000");
+    }
+
+    /** Crea un producto válido con el nombre y precio indicados. */
+    private static Producto producto(String nombre, String precio) {
         return Producto.builder()
-                .nombre(nombre).precio(new BigDecimal("1000")).stock(1)
+                .nombre(nombre).precio(new BigDecimal(precio)).stock(1)
                 .build();
     }
 }

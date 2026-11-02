@@ -9,6 +9,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.CannotCreateTransactionException;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -25,6 +26,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Levanta solo la capa MVC; el servicio es un mock de Mockito (@MockitoBean).
  *
  * Se verifica lo que le importa al cliente HTTP: código de estado y JSON de respuesta.
+ * Éxito:  {"status": "success", "data": ..., "message": ...}
+ * Error:  {"status": "error", "code": ..., "message": ..., "errors": [...]}
  */
 @WebMvcTest(ProductoController.class) // carga solo este controller y la config web
 class ProductoControllerTest {
@@ -53,8 +56,10 @@ class ProductoControllerTest {
         mockMvc.perform(get(URL))
                 .andExpect(status().isOk())
                 // jsonPath navega el JSON de respuesta: $ es la raíz
-                .andExpect(jsonPath("$", hasSize(1)))
-                .andExpect(jsonPath("$[0].nombre").value("Mouse"));
+                .andExpect(jsonPath("$.status").value("success"))
+                .andExpect(jsonPath("$.data", hasSize(1)))
+                .andExpect(jsonPath("$.data[0].nombre").value("Mouse"))
+                .andExpect(jsonPath("$.message").doesNotExist()); // message: null
     }
 
     @Test
@@ -68,6 +73,53 @@ class ProductoControllerTest {
         verify(service).listar("mou");
     }
 
+    // ---------- GET /api/productos/precio ----------
+
+    @Test
+    void listarPorRangoPrecio_retorna200ConLista() throws Exception {
+        when(service.listarPorRangoPrecio(new BigDecimal("10000"), new BigDecimal("20000")))
+                .thenReturn(List.of(mouse));
+
+        mockMvc.perform(get(URL + "/precio").param("min", "10000").param("max", "20000"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("success"))
+                .andExpect(jsonPath("$.data", hasSize(1)))
+                .andExpect(jsonPath("$.data[0].nombre").value("Mouse"));
+    }
+
+    @Test
+    void listarPorRangoPrecio_minMayorQueMax_retorna400() throws Exception {
+        // el servicio rechaza el rango; GlobalExceptionHandler lo convierte en 400
+        when(service.listarPorRangoPrecio(any(), any()))
+                .thenThrow(new IllegalArgumentException("El precio mínimo no puede ser mayor que el máximo"));
+
+        mockMvc.perform(get(URL + "/precio").param("min", "500").param("max", "100"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value("error"))
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").value("El precio mínimo no puede ser mayor que el máximo"))
+                .andExpect(jsonPath("$.errors", hasSize(0)));
+    }
+
+    @Test
+    void listarPorRangoPrecio_sinParametros_retorna400_yNoLlamaAlServicio() throws Exception {
+        mockMvc.perform(get(URL + "/precio").param("min", "100"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value("error"))
+                .andExpect(jsonPath("$.message").value("Falta el parámetro 'max'"));
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void listarPorRangoPrecio_valorNoNumerico_retorna400() throws Exception {
+        mockMvc.perform(get(URL + "/precio").param("min", "abc").param("max", "100"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Valor inválido para el parámetro 'min'"));
+
+        verifyNoInteractions(service);
+    }
+
     // ---------- GET /api/productos/{id} ----------
 
     @Test
@@ -76,19 +128,35 @@ class ProductoControllerTest {
 
         mockMvc.perform(get(URL + "/1"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(1))
-                .andExpect(jsonPath("$.precio").value(15990));
+                .andExpect(jsonPath("$.status").value("success"))
+                .andExpect(jsonPath("$.data.id").value(1))
+                .andExpect(jsonPath("$.data.precio").value(15990));
     }
 
     @Test
-    void obtener_inexistente_retorna404ProblemDetail() throws Exception {
+    void obtener_inexistente_retorna404ConFormatoError() throws Exception {
         // el mock lanza la excepción; GlobalExceptionHandler debe convertirla en 404
         when(service.obtener(99L)).thenThrow(new RecursoNoEncontradoException("Producto 99 no encontrado"));
 
         mockMvc.perform(get(URL + "/99"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.status").value(404))
-                .andExpect(jsonPath("$.detail").value("Producto 99 no encontrado"));
+                .andExpect(jsonPath("$.status").value("error"))
+                .andExpect(jsonPath("$.code").value(404))
+                .andExpect(jsonPath("$.message").value("Producto 99 no encontrado"))
+                .andExpect(jsonPath("$.errors", hasSize(0)));
+    }
+
+    @Test
+    void obtener_sinConexionABaseDeDatos_retorna503() throws Exception {
+        // es lo que lanza Spring cuando vence el connection-timeout de Hikari
+        when(service.obtener(1L)).thenThrow(new CannotCreateTransactionException("Could not open JPA EntityManager"));
+
+        mockMvc.perform(get(URL + "/1"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.status").value("error"))
+                .andExpect(jsonPath("$.code").value(503))
+                .andExpect(jsonPath("$.message").value("Base de datos no disponible, intente más tarde"))
+                .andExpect(jsonPath("$.errors", hasSize(0)));
     }
 
     // ---------- POST /api/productos ----------
@@ -103,7 +171,9 @@ class ProductoControllerTest {
                                 {"nombre":"Mouse","descripcion":"Inalámbrico","precio":15990,"stock":10}
                                 """))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").value(1));
+                .andExpect(jsonPath("$.status").value("success"))
+                .andExpect(jsonPath("$.data.id").value(1))
+                .andExpect(jsonPath("$.message").value("Producto creado"));
     }
 
     @Test
@@ -115,12 +185,27 @@ class ProductoControllerTest {
                                 {"nombre":"","precio":-1,"stock":-5}
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.detail").value("Datos inválidos"))
-                .andExpect(jsonPath("$.errores.nombre").value("El nombre es obligatorio"))
-                .andExpect(jsonPath("$.errores.precio").value("El precio no puede ser negativo"))
-                .andExpect(jsonPath("$.errores.stock").value("El stock no puede ser negativo"));
+                .andExpect(jsonPath("$.status").value("error"))
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").value("Datos inválidos"))
+                .andExpect(jsonPath("$.errors", hasSize(3)))
+                // el filtro [?(...)] busca el elemento de la lista con ese campo
+                .andExpect(jsonPath("$.errors[?(@.campo == 'nombre')].mensaje").value("El nombre es obligatorio"))
+                .andExpect(jsonPath("$.errors[?(@.campo == 'precio')].mensaje").value("El precio no puede ser negativo"))
+                .andExpect(jsonPath("$.errors[?(@.campo == 'stock')].mensaje").value("El stock no puede ser negativo"));
 
         // @Valid corta la petición antes de llegar al servicio
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void crear_jsonMalFormado_retorna400() throws Exception {
+        mockMvc.perform(post(URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nombre\":"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("El cuerpo de la petición no es un JSON válido"));
+
         verifyNoInteractions(service);
     }
 
@@ -137,15 +222,19 @@ class ProductoControllerTest {
                                 {"nombre":"Mouse","precio":15990,"stock":10}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.nombre").value("Mouse"));
+                .andExpect(jsonPath("$.data.nombre").value("Mouse"))
+                .andExpect(jsonPath("$.message").value("Producto actualizado"));
     }
 
     // ---------- DELETE /api/productos/{id} ----------
 
     @Test
-    void eliminar_retorna204() throws Exception {
+    void eliminar_retorna200ConMensaje() throws Exception {
         mockMvc.perform(delete(URL + "/1"))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("success"))
+                .andExpect(jsonPath("$.data").doesNotExist()) // data: null
+                .andExpect(jsonPath("$.message").value("Producto eliminado"));
 
         verify(service).eliminar(1L);
     }
@@ -157,6 +246,7 @@ class ProductoControllerTest {
                 .when(service).eliminar(99L);
 
         mockMvc.perform(delete(URL + "/99"))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(404));
     }
 }

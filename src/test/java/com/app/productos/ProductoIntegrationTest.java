@@ -48,7 +48,8 @@ class ProductoIntegrationTest {
                                 {"nombre":"Mouse","descripcion":"Inalámbrico","precio":15990,"stock":10}
                                 """))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").isNumber());
+                .andExpect(jsonPath("$.status").value("success"))
+                .andExpect(jsonPath("$.data.id").isNumber());
 
         // id generado por la base, leído directamente
         Long id = repository.findAll().getFirst().getId();
@@ -56,12 +57,17 @@ class ProductoIntegrationTest {
         // Obtener
         mockMvc.perform(get(URL + "/" + id))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.nombre").value("Mouse"));
+                .andExpect(jsonPath("$.data.nombre").value("Mouse"));
 
         // Listar con filtro
         mockMvc.perform(get(URL).param("nombre", "mou"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(1)));
+                .andExpect(jsonPath("$.data", hasSize(1)));
+
+        // Listar por rango de precio (15990 está dentro)
+        mockMvc.perform(get(URL + "/precio").param("min", "10000").param("max", "20000"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", hasSize(1)));
 
         // Actualizar
         mockMvc.perform(put(URL + "/" + id)
@@ -70,7 +76,7 @@ class ProductoIntegrationTest {
                                 {"nombre":"Mouse Pro","precio":29990,"stock":3}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.nombre").value("Mouse Pro"));
+                .andExpect(jsonPath("$.data.nombre").value("Mouse Pro"));
 
         // el cambio quedó persistido en la base
         assertThat(repository.findById(id)).get()
@@ -78,11 +84,14 @@ class ProductoIntegrationTest {
 
         // Eliminar
         mockMvc.perform(delete(URL + "/" + id))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Producto eliminado"));
 
         // ya no existe ni por HTTP ni en la base
         mockMvc.perform(get(URL + "/" + id))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value("error"))
+                .andExpect(jsonPath("$.code").value(404));
         assertThat(repository.count()).isZero();
     }
 
