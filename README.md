@@ -62,6 +62,7 @@ Desde Swagger UI se pueden probar todos los endpoints.
 | POST   | `/api/productos`         | Crea un producto (responde 201)              |
 | PUT    | `/api/productos/{id}`    | Actualiza un producto                        |
 | DELETE | `/api/productos/{id}`    | Elimina un producto                          |
+| GET    | `/api/ventas`            | Lista las ventas (vista `productos_ventas_view`) |
 
 ### Formato de respuesta
 
@@ -91,6 +92,7 @@ Todas las respuestas usan el mismo envoltorio JSON, tanto las exitosas como las 
 | `POST /api/productos` (201) | el producto creado | `"Producto creado"` |
 | `PUT /api/productos/{id}` | el producto actualizado | `"Producto actualizado"` |
 | `DELETE /api/productos/{id}` | `null` | `"Producto eliminado"` |
+| `GET /api/ventas` | lista de ventas (`[]` si no hay) | `null` |
 
 **Error** (400 / 404): `code` repite el código HTTP y `errors` trae el detalle por campo (lista vacía si no aplica).
 
@@ -161,6 +163,36 @@ Internamente busca `creado_en >= desde 00:00` y `creado_en < (hasta + 1 día) 00
 | Fecha con otro formato (ej. `01/10/2026`) | 400, `Valor inválido para el parámetro 'desde'` |
 | Falta `desde` o `hasta` | 400, `Falta el parámetro 'hasta'` |
 
+### Ventas (vista `productos_ventas_view`)
+
+`GET /api/ventas` devuelve las filas de la vista `productos_ventas_view`, que une `ventas` con `productos`, ordenadas por `id_venta`. Es **solo lectura**: no hay endpoints para crear, modificar ni borrar ventas.
+
+```
+curl "http://localhost:8082/api/ventas"
+```
+
+```json
+{
+  "status": "success",
+  "data": [
+    { "idVenta": 2, "nombre": "Teclado", "cantidad": 3, "precio": 90000.00, "total": 270000.00, "fecha": "2026-10-24T09:59:30.021223" },
+    { "idVenta": 3, "nombre": "Monitor 24\"", "cantidad": 1, "precio": 720000.00, "total": 720000.00, "fecha": "2026-10-24T09:59:30.021223" }
+  ],
+  "message": null
+}
+```
+
+| Campo | Columna de la vista | Origen |
+|-------|---------------------|--------|
+| `idVenta` | `id_venta` | `ventas.id_venta` |
+| `nombre` | `nombre` | `productos.nombre` |
+| `cantidad` | `cantidad` | `ventas.cantidad` |
+| `precio` | `precio` | `productos.precio` (precio **actual**, no el del momento de la venta) |
+| `total` | `total` | `cantidad * precio`, calculado por la vista |
+| `fecha` | `fecha` | `ventas.fecha` |
+
+La entidad `ProductoVenta` está marcada con `@Immutable` y su repositorio extiende `Repository` (no `JpaRepository`), así que desde la aplicación no se puede escribir en la vista.
+
 ### Crear y actualizar
 
 Ejemplo de cuerpo para `POST` / `PUT`:
@@ -214,12 +246,16 @@ Datos inválidos (400), con un elemento en `errors` por cada campo que falla:
 src/main/java/com/app/productos/
 ├── ProductosApplication.java
 ├── config/OpenApiConfig.java          # Información de la API en Swagger
-├── controller/ProductoController.java # Endpoints REST
+├── controller/ProductoController.java # Endpoints REST de productos
+├── controller/ProductoVentaController.java # GET /api/ventas
 ├── exception/                         # Manejo de errores (404 y 400) en formato ApiError
 ├── model/Producto.java                # Entidad JPA -> tabla productos
+├── model/ProductoVenta.java           # Entidad de solo lectura -> vista productos_ventas_view
 ├── repository/ProductoRepository.java # Acceso a datos
+├── repository/ProductoVentaRepository.java # Lectura de la vista
 ├── response/                          # ApiResponse (éxito) y ApiError (error)
-└── service/ProductoService.java       # Lógica de negocio
+├── service/ProductoService.java       # Lógica de negocio
+└── service/ProductoVentaService.java  # Consulta de ventas
 src/main/resources/application.properties  # Puerto, conexión y Swagger
 
 src/test/java/com/app/productos/
@@ -227,8 +263,11 @@ src/test/java/com/app/productos/
 ├── ProductoIntegrationTest.java                # Integración completa (H2)
 ├── ConexionBaseDatosTest.java                  # Conexión a la base: disponible y caída (timeout, 503)
 ├── controller/ProductoControllerTest.java      # Capa web (Mockito)
+├── controller/ProductoVentaControllerTest.java # Capa web de ventas (Mockito)
 ├── repository/ProductoRepositoryTest.java      # Capa de datos (H2)
-└── service/ProductoServiceTest.java            # Capa de negocio (Mockito)
+├── repository/ProductoVentaRepositoryTest.java # Mapeo de la vista de ventas (H2)
+├── service/ProductoServiceTest.java            # Capa de negocio (Mockito)
+└── service/ProductoVentaServiceTest.java       # Negocio de ventas (Mockito)
 src/test/resources/application-test.properties  # Perfil test: H2 en memoria
 
 .github/workflows/ci.yml                        # CI: corre los tests en GitHub
@@ -357,6 +396,14 @@ Dos grupos de tests (`@Nested`), sin mocks y sin necesitar PostgreSQL:
 
 - **`BaseDisponible`** (H2): obtiene una conexión del pool y la valida con un ping real (`isValid`), y comprueba que el pool usa el `connection-timeout` de 5000 ms configurado.
 - **`BaseCaida`**: apunta a `10.255.255.1`, una IP que no responde, para simular PostgreSQL caído. Verifica que la aplicación arranca igual, que `GET /api/productos/1` responde 503 en el formato estándar y que lo hace en menos de 10 s (sin timeouts esperaría 30 s o más).
+
+#### 6. Ventas — `ProductoVenta*Test`
+
+Mismas tres capas que productos, para `GET /api/ventas`:
+
+- **Service** (Mockito): devuelve lo que entrega el repositorio, y una lista vacía si no hay ventas.
+- **Controller** (`@WebMvcTest`): responde 200 con los campos de la vista en formato estándar, `data: []` sin ventas, y 503 si la base no está disponible.
+- **Repository** (`@DataJpaTest`): en H2 no existe la vista real, así que Hibernate crea una tabla con ese nombre desde la entidad. El test carga filas desordenadas y verifica el mapeo de columnas y el orden por `id_venta`. La consulta SQL de la vista (JOIN y cálculo de `total`) **no** se prueba aquí, porque vive en PostgreSQL.
 
 `ProductosApplicationTests.contextLoads` solo verifica que el contexto de Spring arranca con el perfil `test`.
 
