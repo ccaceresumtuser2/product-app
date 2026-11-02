@@ -85,6 +85,27 @@ class ProductoServiceTest {
         verify(repository, never()).findAll();
     }
 
+    // ---------- listarPorRangoPrecio ----------
+
+    @Test
+    void listarPorRangoPrecio_rangoValido_buscaEnRepositorio() {
+        BigDecimal min = new BigDecimal("10000");
+        BigDecimal max = new BigDecimal("20000");
+        when(repository.findByPrecioBetweenOrderByPrecioAsc(min, max)).thenReturn(List.of(mouse));
+
+        List<Producto> resultado = service.listarPorRangoPrecio(min, max);
+
+        assertThat(resultado).containsExactly(mouse);
+    }
+
+    @Test
+    void listarPorRangoPrecio_minMayorQueMax_lanzaExcepcion_yNoConsulta() {
+        assertThatThrownBy(() -> service.listarPorRangoPrecio(new BigDecimal("500"), new BigDecimal("100")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("El precio mínimo no puede ser mayor que el máximo");
+        verify(repository, never()).findByPrecioBetweenOrderByPrecioAsc(any(), any());
+    }
+
     // ---------- obtener ----------
 
     @Test
