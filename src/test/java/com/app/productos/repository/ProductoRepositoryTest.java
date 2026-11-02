@@ -1,6 +1,8 @@
 package com.app.productos.repository;
 
 import com.app.productos.model.Producto;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -8,6 +10,7 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,6 +27,10 @@ class ProductoRepositoryTest {
 
     @Autowired
     private ProductoRepository repository;
+
+    /** Para ejecutar SQL directo en la misma transacción del test. */
+    @PersistenceContext
+    private EntityManager entityManager;
 
     /** Datos de prueba; se descartan al terminar cada test (rollback). */
     @BeforeEach
@@ -74,6 +81,46 @@ class ProductoRepositoryTest {
         assertThat(resultado)
                 .extracting(Producto::getNombre)
                 .containsExactly("Cable", "Mouse", "Teclado");
+    }
+
+    @Test
+    void save_asignaCreadoEn() {
+        Producto guardado = repository.save(producto("Monitor"));
+
+        // @CreationTimestamp lo completa al insertar
+        assertThat(guardado.getCreadoEn()).isNotNull();
+    }
+
+    @Test
+    void buscarCreadosEntre_incluyeDesde_excluyeHasta_yOrdenaPorFecha() {
+        repository.deleteAll();
+        Producto septiembre = repository.save(producto("Septiembre"));
+        Producto inicioOctubre = repository.save(producto("Inicio octubre"));
+        Producto finOctubre = repository.save(producto("Fin octubre"));
+        Producto noviembre = repository.save(producto("Noviembre"));
+        // creado_en no es actualizable desde la entidad: se fija con SQL directo
+        fijarCreadoEn(septiembre, "2026-09-30T23:59:59");
+        fijarCreadoEn(inicioOctubre, "2026-10-01T00:00:00");
+        fijarCreadoEn(finOctubre, "2026-10-31T23:59:59");
+        fijarCreadoEn(noviembre, "2026-11-01T00:00:00");
+
+        List<Producto> resultado = repository.buscarCreadosEntre(
+                LocalDateTime.parse("2026-10-01T00:00:00"), LocalDateTime.parse("2026-11-01T00:00:00"));
+
+        // 1 oct 00:00 entra (>=), 1 nov 00:00 queda fuera (<)
+        assertThat(resultado)
+                .extracting(Producto::getNombre)
+                .containsExactly("Inicio octubre", "Fin octubre");
+    }
+
+    /** Cambia creado_en directo en la tabla y limpia la caché de JPA para releer el valor real. */
+    private void fijarCreadoEn(Producto p, String fecha) {
+        entityManager.flush();
+        entityManager.createNativeQuery("UPDATE productos SET creado_en = :fecha WHERE id = :id")
+                .setParameter("fecha", LocalDateTime.parse(fecha))
+                .setParameter("id", p.getId())
+                .executeUpdate();
+        entityManager.clear();
     }
 
     /** Crea un producto válido con el nombre indicado. */

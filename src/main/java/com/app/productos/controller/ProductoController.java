@@ -7,10 +7,12 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -42,6 +44,19 @@ public class ProductoController {
     @Operation(summary = "Listar productos por rango de precio")
     public ApiResponse<List<Producto>> listarPorRangoPrecio(@RequestParam BigDecimal min, @RequestParam BigDecimal max) {
         return ApiResponse.ok(service.listarPorRangoPrecio(min, max));
+    }
+
+    /**
+     * GET /api/productos/fecha?desde=2026-10-01&hasta=2026-10-31 — productos creados en ese rango
+     * de días (ambos incluidos). Fechas en formato ISO (yyyy-MM-dd); 400 si faltan, son inválidas
+     * o desde es posterior a hasta.
+     */
+    @GetMapping("/fecha")
+    @Operation(summary = "Listar productos por fecha de creación")
+    public ApiResponse<List<Producto>> listarPorFechaCreacion(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta) {
+        return ApiResponse.ok(service.listarPorFechaCreacion(desde, hasta));
     }
 
     /** GET /api/productos/{id} — responde 404 si no existe. */

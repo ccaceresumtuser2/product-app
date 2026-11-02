@@ -1,10 +1,13 @@
 package com.app.productos.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.*;
 import lombok.*;
+import org.hibernate.annotations.CreationTimestamp;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 /**
  * Entidad JPA mapeada a la tabla {@code productos}.
@@ -45,4 +48,14 @@ public class Producto {
     @Min(value = 0, message = "El stock no puede ser negativo")
     @Column(nullable = false)
     private Integer stock;
+
+    /**
+     * Fecha y hora de creación. La asigna Hibernate al insertar ({@code @CreationTimestamp})
+     * y nunca se modifica ({@code updatable = false}).
+     * READ_ONLY: sale en el JSON de respuesta pero se ignora si el cliente la envía.
+     */
+    @CreationTimestamp
+    @Column(name = "creado_en", nullable = false, updatable = false)
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    private LocalDateTime creadoEn;
 }

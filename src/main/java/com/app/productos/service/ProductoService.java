@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -44,6 +45,20 @@ public class ProductoService {
             throw new IllegalArgumentException("El precio mínimo no puede ser mayor que el máximo");
         }
         return repository.findByPrecioBetweenOrderByPrecioAsc(min, max);
+    }
+
+    /**
+     * Lista los productos creados entre {@code desde} y {@code hasta}, ambos días completos incluidos.
+     *
+     * @throws IllegalArgumentException si {@code desde} es posterior a {@code hasta} (se responde 400)
+     */
+    @Transactional(readOnly = true)
+    public List<Producto> listarPorFechaCreacion(LocalDate desde, LocalDate hasta) {
+        if (desde.isAfter(hasta)) {
+            throw new IllegalArgumentException("La fecha 'desde' no puede ser posterior a 'hasta'");
+        }
+        // [desde 00:00, día siguiente a hasta 00:00) cubre el día "hasta" completo
+        return repository.buscarCreadosEntre(desde.atStartOfDay(), hasta.plusDays(1).atStartOfDay());
     }
 
     /**

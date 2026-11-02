@@ -57,6 +57,7 @@ Desde Swagger UI se pueden probar todos los endpoints.
 |--------|--------------------------|----------------------------------------------|
 | GET    | `/api/productos`         | Lista productos. Filtro opcional `?nombre=`  |
 | GET    | `/api/productos/precio`  | Lista por rango de precio `?min=&max=`       |
+| GET    | `/api/productos/fecha`   | Lista por fecha de creación `?desde=&hasta=` |
 | GET    | `/api/productos/{id}`    | Obtiene un producto                          |
 | POST   | `/api/productos`         | Crea un producto (responde 201)              |
 | PUT    | `/api/productos/{id}`    | Actualiza un producto                        |
@@ -76,7 +77,8 @@ Todas las respuestas usan el mismo envoltorio JSON, tanto las exitosas como las 
     "nombre": "Mouse",
     "descripcion": "Inalámbrico",
     "precio": 15990,
-    "stock": 10
+    "stock": 10,
+    "creadoEn": "2026-10-24T09:55:44.603972"
   },
   "message": null
 }
@@ -84,7 +86,7 @@ Todas las respuestas usan el mismo envoltorio JSON, tanto las exitosas como las 
 
 | Endpoint | `data` | `message` |
 |----------|--------|-----------|
-| `GET /api/productos`, `GET /api/productos/precio` | lista de productos (`[]` si no hay) | `null` |
+| `GET /api/productos`, `/precio`, `/fecha` | lista de productos (`[]` si no hay) | `null` |
 | `GET /api/productos/{id}` | el producto | `null` |
 | `POST /api/productos` (201) | el producto creado | `"Producto creado"` |
 | `PUT /api/productos/{id}` | el producto actualizado | `"Producto actualizado"` |
@@ -131,6 +133,34 @@ Si no hay productos en el rango, `data` es `[]`. Si `min` es mayor que `max` res
 }
 ```
 
+### Buscar por fecha de creación
+
+`GET /api/productos/fecha?desde=2026-10-01&hasta=2026-10-31` devuelve los productos cuyo `creado_en` cae entre esos días (**ambos incluidos, día completo**), del más antiguo al más reciente. Las fechas van en formato `yyyy-MM-dd` y los dos parámetros son obligatorios. Para un solo día se usa la misma fecha en ambos.
+
+```
+curl "http://localhost:8082/api/productos/fecha?desde=2026-10-24&hasta=2026-10-24"
+```
+
+```json
+{
+  "status": "success",
+  "data": [
+    { "id": 2, "nombre": "Monitor 24\"", "descripcion": null, "precio": 720000.00, "stock": 10, "creadoEn": "2026-10-24T09:55:44.603972" },
+    { "id": 3, "nombre": "Audífonos Bluetooth", "descripcion": null, "precio": 150000.00, "stock": 30, "creadoEn": "2026-10-24T09:55:44.603972" }
+  ],
+  "message": null
+}
+```
+
+Internamente busca `creado_en >= desde 00:00` y `creado_en < (hasta + 1 día) 00:00`, así un producto creado el 31 a las 23:59 entra en el rango.
+
+| Caso | Respuesta |
+|------|-----------|
+| Sin productos en el rango | 200 con `data: []` |
+| `desde` posterior a `hasta` | 400, `La fecha 'desde' no puede ser posterior a 'hasta'` |
+| Fecha con otro formato (ej. `01/10/2026`) | 400, `Valor inválido para el parámetro 'desde'` |
+| Falta `desde` o `hasta` | 400, `Falta el parámetro 'hasta'` |
+
 ### Crear y actualizar
 
 Ejemplo de cuerpo para `POST` / `PUT`:
@@ -150,6 +180,7 @@ Validaciones:
 - `descripcion`: opcional, máximo 255 caracteres
 - `precio`: obligatorio, mayor o igual a 0
 - `stock`: obligatorio, mayor o igual a 0
+- `creadoEn`: **no se envía**. Lo asigna la aplicación al crear el producto, no cambia al actualizar y, si el cliente lo manda en el JSON, se ignora.
 
 ### Errores
 
@@ -215,7 +246,8 @@ CREATE TABLE productos (
     nombre      VARCHAR(100) NOT NULL,
     descripcion VARCHAR(255),
     precio      NUMERIC      NOT NULL,
-    stock       INTEGER      NOT NULL
+    stock       INTEGER      NOT NULL,
+    creado_en   TIMESTAMP    NOT NULL DEFAULT now()
 );
 ```
 
@@ -295,6 +327,7 @@ Cada capa se prueba aislada, reemplazando la capa de abajo por un **mock de Mock
 - Casos probados:
   - `listar` usa `findAll()` sin filtro (o filtro en blanco) y `findByNombreContainingIgnoreCase` con filtro.
   - `listarPorRangoPrecio` consulta `findByPrecioBetweenOrderByPrecioAsc`; si `min > max` lanza `IllegalArgumentException` y **no** consulta.
+  - `listarPorFechaCreacion` pasa al repositorio `[desde 00:00, hasta + 1 día 00:00)` para incluir el último día completo; si `desde > hasta` lanza `IllegalArgumentException` y **no** consulta.
   - `obtener` devuelve el producto o lanza `RecursoNoEncontradoException`.
   - `crear` pone `id = null` antes de guardar (se verifica con `ArgumentCaptor`).
   - `actualizar` copia los campos y guarda; si no existe, **no** llama a `save` (`verify(repository, never())`).
@@ -310,12 +343,12 @@ Cada capa se prueba aislada, reemplazando la capa de abajo por un **mock de Mock
 
 - Prueba las consultas reales contra H2. No usa mocks: mockear el repositorio aquí no probaría nada.
 - Cada test corre en una transacción que se revierte al terminar, así los datos no se mezclan entre tests.
-- Casos probados: `save` genera id, `findByNombreContainingIgnoreCase` ignora mayúsculas y devuelve vacío si no hay coincidencias, y `findByPrecioBetweenOrderByPrecioAsc` incluye los extremos del rango y ordena por precio.
+- Casos probados: `save` genera id, `findByNombreContainingIgnoreCase` ignora mayúsculas y devuelve vacío si no hay coincidencias, `findByPrecioBetweenOrderByPrecioAsc` incluye los extremos del rango y ordena por precio, `save` asigna `creadoEn`, y `buscarCreadosEntre` incluye `desde`, excluye `hasta` y ordena por fecha (las fechas se fijan con SQL directo porque `creado_en` no es actualizable desde la entidad).
 
 #### 4. Integración — `ProductoIntegrationTest` (`@SpringBootTest`)
 
 - Levanta la aplicación completa, sin mocks: Controller → Service → Repository → H2.
-- Recorre el CRUD completo por HTTP (crear, obtener, filtrar por nombre y por rango de precio, actualizar, eliminar, 404 después de eliminar) y revisa la base con el repositorio.
+- Recorre el CRUD completo por HTTP (crear, obtener, filtrar por nombre, por rango de precio y por fecha de creación, actualizar, eliminar, 404 después de eliminar) y revisa la base con el repositorio.
 - Comprueba también que un POST inválido no guarda nada.
 
 #### 5. Conexión a la base — `ConexionBaseDatosTest` (`@SpringBootTest`)
