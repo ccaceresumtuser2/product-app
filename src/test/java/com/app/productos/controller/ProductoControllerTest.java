@@ -12,10 +12,13 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.CannotCreateTransactionException;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -118,6 +121,70 @@ class ProductoControllerTest {
                 .andExpect(jsonPath("$.message").value("Valor inválido para el parámetro 'min'"));
 
         verifyNoInteractions(service);
+    }
+
+    // ---------- GET /api/productos/fecha ----------
+
+    @Test
+    void listarPorFechaCreacion_retorna200ConCreadoEn() throws Exception {
+        Producto conFecha = Producto.builder()
+                .id(1L).nombre("Mouse").precio(new BigDecimal("15990")).stock(10)
+                .creadoEn(LocalDateTime.of(2026, 10, 24, 9, 55, 44))
+                .build();
+        when(service.listarPorFechaCreacion(LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31)))
+                .thenReturn(List.of(conFecha));
+
+        mockMvc.perform(get(URL + "/fecha").param("desde", "2026-10-01").param("hasta", "2026-10-31"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("success"))
+                .andExpect(jsonPath("$.data", hasSize(1)))
+                // LocalDateTime se serializa en formato ISO
+                .andExpect(jsonPath("$.data[0].creadoEn").value("2026-10-24T09:55:44"));
+    }
+
+    @Test
+    void listarPorFechaCreacion_desdePosteriorAHasta_retorna400() throws Exception {
+        when(service.listarPorFechaCreacion(any(), any()))
+                .thenThrow(new IllegalArgumentException("La fecha 'desde' no puede ser posterior a 'hasta'"));
+
+        mockMvc.perform(get(URL + "/fecha").param("desde", "2026-11-01").param("hasta", "2026-10-01"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").value("La fecha 'desde' no puede ser posterior a 'hasta'"));
+    }
+
+    @Test
+    void listarPorFechaCreacion_fechaInvalida_retorna400_yNoLlamaAlServicio() throws Exception {
+        // formato distinto de yyyy-MM-dd
+        mockMvc.perform(get(URL + "/fecha").param("desde", "01/10/2026").param("hasta", "2026-10-31"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Valor inválido para el parámetro 'desde'"));
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void listarPorFechaCreacion_sinHasta_retorna400() throws Exception {
+        mockMvc.perform(get(URL + "/fecha").param("desde", "2026-10-01"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Falta el parámetro 'hasta'"));
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void crear_ignoraCreadoEnEnviadoPorElCliente() throws Exception {
+        when(service.crear(any(Producto.class))).thenReturn(mouse);
+
+        mockMvc.perform(post(URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nombre":"Mouse","precio":15990,"stock":10,"creadoEn":"2000-01-01T00:00:00"}
+                                """))
+                .andExpect(status().isCreated());
+
+        // READ_ONLY: Jackson descarta creadoEn del cuerpo, el servicio lo recibe en null
+        verify(service).crear(argThat(p -> p.getCreadoEn() == null));
     }
 
     // ---------- GET /api/productos/{id} ----------

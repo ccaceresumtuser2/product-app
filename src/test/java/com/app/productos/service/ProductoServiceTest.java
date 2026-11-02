@@ -12,6 +12,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -104,6 +106,40 @@ class ProductoServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("El precio mínimo no puede ser mayor que el máximo");
         verify(repository, never()).findByPrecioBetweenOrderByPrecioAsc(any(), any());
+    }
+
+    // ---------- listarPorFechaCreacion ----------
+
+    @Test
+    void listarPorFechaCreacion_incluyeElDiaHastaCompleto() {
+        when(repository.buscarCreadosEntre(any(), any())).thenReturn(List.of(mouse));
+
+        List<Producto> resultado = service.listarPorFechaCreacion(
+                LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31));
+
+        assertThat(resultado).containsExactly(mouse);
+        // el servicio pasa [1 oct 00:00, 1 nov 00:00): así el 31 de octubre entra completo
+        verify(repository).buscarCreadosEntre(
+                LocalDateTime.of(2026, 10, 1, 0, 0),
+                LocalDateTime.of(2026, 11, 1, 0, 0));
+    }
+
+    @Test
+    void listarPorFechaCreacion_mismoDia_esValido() {
+        service.listarPorFechaCreacion(LocalDate.of(2026, 10, 24), LocalDate.of(2026, 10, 24));
+
+        verify(repository).buscarCreadosEntre(
+                LocalDateTime.of(2026, 10, 24, 0, 0),
+                LocalDateTime.of(2026, 10, 25, 0, 0));
+    }
+
+    @Test
+    void listarPorFechaCreacion_desdePosteriorAHasta_lanzaExcepcion_yNoConsulta() {
+        assertThatThrownBy(() -> service.listarPorFechaCreacion(
+                LocalDate.of(2026, 11, 1), LocalDate.of(2026, 10, 1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("La fecha 'desde' no puede ser posterior a 'hasta'");
+        verify(repository, never()).buscarCreadosEntre(any(), any());
     }
 
     // ---------- obtener ----------

@@ -10,6 +10,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.LocalDate;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -68,6 +70,13 @@ class ProductoIntegrationTest {
         mockMvc.perform(get(URL + "/precio").param("min", "10000").param("max", "20000"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data", hasSize(1)));
+
+        // Listar por fecha de creación (se creó hoy)
+        String hoy = LocalDate.now().toString();
+        mockMvc.perform(get(URL + "/fecha").param("desde", hoy).param("hasta", hoy))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", hasSize(1)))
+                .andExpect(jsonPath("$.data[0].creadoEn").isNotEmpty());
 
         // Actualizar
         mockMvc.perform(put(URL + "/" + id)
