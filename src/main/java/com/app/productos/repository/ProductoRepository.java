@@ -24,6 +24,12 @@ public interface ProductoRepository extends JpaRepository<Producto, Long> {
     List<Producto> findByNombreContainingIgnoreCase(String nombre);
 
     /**
+     * Busca productos cuyo nombre sea exactamente el texto, sin distinguir mayúsculas:
+     * {@code WHERE UPPER(nombre) = UPPER('texto')}. Devuelve lista porque la columna no es única.
+     */
+    List<Producto> findByNombreIgnoreCase(String nombre);
+
+    /**
      * Busca productos con precio dentro del rango (ambos extremos incluidos), del más barato al más caro.
      * Consulta derivada: {@code WHERE precio BETWEEN min AND max ORDER BY precio ASC}.
      */

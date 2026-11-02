@@ -91,6 +91,26 @@ class ProductoIntegrationTest {
         assertThat(repository.findById(id)).get()
                 .satisfies(p -> assertThat(p.getStock()).isEqualTo(3));
 
+        // Actualizar por nombre (sin distinguir mayúsculas) y renombrar
+        mockMvc.perform(put(URL).param("nombre", "mouse pro")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nombre":"Mouse Ultra","precio":39990,"stock":7}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(id))
+                .andExpect(jsonPath("$.data.nombre").value("Mouse Ultra"));
+        assertThat(repository.findById(id)).get()
+                .satisfies(p -> assertThat(p.getStock()).isEqualTo(7));
+
+        // el nombre anterior ya no existe
+        mockMvc.perform(put(URL).param("nombre", "Mouse Pro")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nombre":"X","precio":1,"stock":1}
+                                """))
+                .andExpect(status().isNotFound());
+
         // Eliminar
         mockMvc.perform(delete(URL + "/" + id))
                 .andExpect(status().isOk())

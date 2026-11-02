@@ -1,5 +1,6 @@
 package com.app.productos.service;
 
+import com.app.productos.exception.ConflictoException;
 import com.app.productos.exception.RecursoNoEncontradoException;
 import com.app.productos.model.Producto;
 import com.app.productos.repository.ProductoRepository;
@@ -221,6 +222,48 @@ class ProductoServiceTest {
 
         assertThatThrownBy(() -> service.actualizar(99L, mouse))
                 .isInstanceOf(RecursoNoEncontradoException.class);
+        verify(repository, never()).save(any());
+    }
+
+    // ---------- actualizarPorNombre ----------
+
+    @Test
+    void actualizarPorNombre_existente_copiaDatosYGuarda() {
+        Producto datos = Producto.builder()
+                .nombre("Mouse Pro").descripcion("Gamer")
+                .precio(new BigDecimal("29990")).stock(3)
+                .build();
+        // el servicio quita espacios al nombre buscado
+        when(repository.findByNombreIgnoreCase("Mouse")).thenReturn(List.of(mouse));
+        when(repository.save(mouse)).thenReturn(mouse);
+
+        Producto resultado = service.actualizarPorNombre("  Mouse ", datos);
+
+        assertThat(resultado.getId()).isEqualTo(1L);
+        assertThat(resultado.getNombre()).isEqualTo("Mouse Pro");
+        assertThat(resultado.getDescripcion()).isEqualTo("Gamer");
+        assertThat(resultado.getPrecio()).isEqualByComparingTo("29990");
+        assertThat(resultado.getStock()).isEqualTo(3);
+    }
+
+    @Test
+    void actualizarPorNombre_inexistente_lanza404_yNoGuarda() {
+        when(repository.findByNombreIgnoreCase("Silla")).thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.actualizarPorNombre("Silla", mouse))
+                .isInstanceOf(RecursoNoEncontradoException.class)
+                .hasMessage("Producto 'Silla' no encontrado");
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void actualizarPorNombre_nombreRepetido_lanzaConflicto_yNoGuarda() {
+        Producto otroMouse = Producto.builder().id(2L).nombre("mouse").precio(BigDecimal.ONE).stock(1).build();
+        when(repository.findByNombreIgnoreCase("Mouse")).thenReturn(List.of(mouse, otroMouse));
+
+        assertThatThrownBy(() -> service.actualizarPorNombre("Mouse", mouse))
+                .isInstanceOf(ConflictoException.class)
+                .hasMessage("Hay 2 productos llamados 'Mouse'; use PUT /api/productos/{id}");
         verify(repository, never()).save(any());
     }
 

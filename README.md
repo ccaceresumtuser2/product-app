@@ -61,6 +61,7 @@ Desde Swagger UI se pueden probar todos los endpoints.
 | GET    | `/api/productos/{id}`    | Obtiene un producto                          |
 | POST   | `/api/productos`         | Crea un producto (responde 201)              |
 | PUT    | `/api/productos/{id}`    | Actualiza un producto                        |
+| PUT    | `/api/productos?nombre=` | Actualiza un producto buscándolo por nombre  |
 | DELETE | `/api/productos/{id}`    | Elimina un producto                          |
 
 ### Formato de respuesta
@@ -89,7 +90,7 @@ Todas las respuestas usan el mismo envoltorio JSON, tanto las exitosas como las 
 | `GET /api/productos`, `/precio`, `/fecha` | lista de productos (`[]` si no hay) | `null` |
 | `GET /api/productos/{id}` | el producto | `null` |
 | `POST /api/productos` (201) | el producto creado | `"Producto creado"` |
-| `PUT /api/productos/{id}` | el producto actualizado | `"Producto actualizado"` |
+| `PUT /api/productos/{id}`, `PUT /api/productos?nombre=` | el producto actualizado | `"Producto actualizado"` |
 | `DELETE /api/productos/{id}` | `null` | `"Producto eliminado"` |
 
 **Error** (400 / 404): `code` repite el código HTTP y `errors` trae el detalle por campo (lista vacía si no aplica).
@@ -182,11 +183,39 @@ Validaciones:
 - `stock`: obligatorio, mayor o igual a 0
 - `creadoEn`: **no se envía**. Lo asigna la aplicación al crear el producto, no cambia al actualizar y, si el cliente lo manda en el JSON, se ignora.
 
+### Editar por nombre
+
+`PUT /api/productos?nombre=Teclado` actualiza el producto cuyo nombre es **exactamente** `Teclado`, sin distinguir mayúsculas (`teclado` también sirve) e ignorando espacios al inicio y al final. El cuerpo es el mismo que el de `PUT /api/productos/{id}`, con las mismas validaciones, y puede traer un nombre nuevo para renombrar el producto.
+
+```
+curl -X PUT "http://localhost:8082/api/productos?nombre=Teclado"      -H "Content-Type: application/json"      -d '{"nombre":"Teclado","descripcion":"Mecánico","precio":95000,"stock":20}'
+```
+
+```json
+{
+  "status": "success",
+  "data": { "id": 1, "nombre": "Teclado", "descripcion": "Mecánico", "precio": 95000, "stock": 20, "creadoEn": "2026-10-24T09:55:44.603972" },
+  "message": "Producto actualizado"
+}
+```
+
+El nombre va como parámetro (`?nombre=`) y no en la ruta, para admitir espacios, comillas o `/`. Si lo escribes a mano en la URL, codifícalo: `Monitor 24"` se escribe `?nombre=Monitor%2024%22`. Swagger y `curl --data-urlencode` lo codifican solos.
+
+| Caso | Respuesta |
+|------|-----------|
+| Un producto con ese nombre | 200, producto actualizado |
+| Ninguno (o solo coincide una parte, ej. `Tecla`) | 404, `Producto 'Tecla' no encontrado` |
+| Varios con el mismo nombre | 409, `Hay 2 productos llamados 'X'; use PUT /api/productos/{id}` |
+| Cuerpo inválido | 400, `Datos inválidos` con detalle en `errors` |
+
+La columna `nombre` no es única en la base. Si hay nombres repetidos, editar por nombre sería ambiguo, así que la API responde 409 en vez de elegir uno: en ese caso hay que usar el `id`.
+
 ### Errores
 
 | Caso | Código | `message` |
 |------|--------|-----------|
 | Producto inexistente | 404 | `Producto 999 no encontrado` |
+| Nombre repetido al editar por nombre | 409 | `Hay 2 productos llamados 'X'; use PUT /api/productos/{id}` |
 | Validación de `POST` / `PUT` | 400 | `Datos inválidos` (detalle en `errors`) |
 | Rango de precio invertido | 400 | `El precio mínimo no puede ser mayor que el máximo` |
 | Falta un parámetro | 400 | `Falta el parámetro 'max'` |
@@ -215,7 +244,7 @@ src/main/java/com/app/productos/
 ├── ProductosApplication.java
 ├── config/OpenApiConfig.java          # Información de la API en Swagger
 ├── controller/ProductoController.java # Endpoints REST
-├── exception/                         # Manejo de errores (404 y 400) en formato ApiError
+├── exception/                         # Manejo de errores (400, 404, 409, 503) en formato ApiError
 ├── model/Producto.java                # Entidad JPA -> tabla productos
 ├── repository/ProductoRepository.java # Acceso a datos
 ├── response/                          # ApiResponse (éxito) y ApiError (error)
@@ -331,24 +360,25 @@ Cada capa se prueba aislada, reemplazando la capa de abajo por un **mock de Mock
   - `obtener` devuelve el producto o lanza `RecursoNoEncontradoException`.
   - `crear` pone `id = null` antes de guardar (se verifica con `ArgumentCaptor`).
   - `actualizar` copia los campos y guarda; si no existe, **no** llama a `save` (`verify(repository, never())`).
+  - `actualizarPorNombre` busca con `findByNombreIgnoreCase` (quitando espacios); si no hay coincidencias lanza `RecursoNoEncontradoException`, si hay varias lanza `ConflictoException`, y en ambos casos **no** guarda.
   - `eliminar` borra el producto; si no existe, **no** llama a `delete`.
 
 #### 2. Controller — `ProductoControllerTest` (`@WebMvcTest` + Mockito)
 
 - `@MockitoBean ProductoService service`: Spring registra un mock de Mockito en lugar del servicio real.
 - `MockMvc` simula peticiones HTTP sin levantar un servidor.
-- Casos probados: códigos HTTP (200, 201, 400, 404), el formato estándar de respuesta (`status`, `data`, `message`) y de error (`status`, `code`, `message`, `errors`) con `jsonPath`, y que con datos inválidos, parámetros faltantes o JSON mal formado el servicio no se llama (`verifyNoInteractions`).
+- Casos probados: códigos HTTP (200, 201, 400, 404, 409, 503), el formato estándar de respuesta (`status`, `data`, `message`) y de error (`status`, `code`, `message`, `errors`) con `jsonPath`, y que con datos inválidos, parámetros faltantes o JSON mal formado el servicio no se llama (`verifyNoInteractions`).
 
 #### 3. Repository — `ProductoRepositoryTest` (`@DataJpaTest`)
 
 - Prueba las consultas reales contra H2. No usa mocks: mockear el repositorio aquí no probaría nada.
 - Cada test corre en una transacción que se revierte al terminar, así los datos no se mezclan entre tests.
-- Casos probados: `save` genera id, `findByNombreContainingIgnoreCase` ignora mayúsculas y devuelve vacío si no hay coincidencias, `findByPrecioBetweenOrderByPrecioAsc` incluye los extremos del rango y ordena por precio, `save` asigna `creadoEn`, y `buscarCreadosEntre` incluye `desde`, excluye `hasta` y ordena por fecha (las fechas se fijan con SQL directo porque `creado_en` no es actualizable desde la entidad).
+- Casos probados: `save` genera id, `findByNombreContainingIgnoreCase` ignora mayúsculas y devuelve vacío si no hay coincidencias, `findByPrecioBetweenOrderByPrecioAsc` incluye los extremos del rango y ordena por precio, `save` asigna `creadoEn`, `buscarCreadosEntre` incluye `desde`, excluye `hasta` y ordena por fecha (las fechas se fijan con SQL directo porque `creado_en` no es actualizable desde la entidad), y `findByNombreIgnoreCase` es coincidencia exacta (no parcial), ignora mayúsculas y devuelve todos los repetidos.
 
 #### 4. Integración — `ProductoIntegrationTest` (`@SpringBootTest`)
 
 - Levanta la aplicación completa, sin mocks: Controller → Service → Repository → H2.
-- Recorre el CRUD completo por HTTP (crear, obtener, filtrar por nombre, por rango de precio y por fecha de creación, actualizar, eliminar, 404 después de eliminar) y revisa la base con el repositorio.
+- Recorre el CRUD completo por HTTP (crear, obtener, filtrar por nombre, por rango de precio y por fecha de creación, actualizar por id, actualizar por nombre y renombrar, 404 al buscar el nombre anterior, eliminar, 404 después de eliminar) y revisa la base con el repositorio.
 - Comprueba también que un POST inválido no guarda nada.
 
 #### 5. Conexión a la base — `ConexionBaseDatosTest` (`@SpringBootTest`)

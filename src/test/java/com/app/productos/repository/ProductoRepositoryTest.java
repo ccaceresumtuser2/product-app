@@ -113,6 +113,22 @@ class ProductoRepositoryTest {
                 .containsExactly("Inicio octubre", "Fin octubre");
     }
 
+    @Test
+    void findByNombreIgnoreCase_esCoincidenciaExacta_sinDistinguirMayusculas() {
+        // setUp guardó "Mouse inalámbrico", "MOUSE gamer" y "Teclado"
+        assertThat(repository.findByNombreIgnoreCase("teclado"))
+                .extracting(Producto::getNombre).containsExactly("Teclado");
+        // "mouse" es parte de dos nombres, pero no es igual a ninguno
+        assertThat(repository.findByNombreIgnoreCase("mouse")).isEmpty();
+    }
+
+    @Test
+    void findByNombreIgnoreCase_nombreRepetido_retornaTodos() {
+        repository.save(producto("teclado"));
+
+        assertThat(repository.findByNombreIgnoreCase("TECLADO")).hasSize(2);
+    }
+
     /** Cambia creado_en directo en la tabla y limpia la caché de JPA para releer el valor real. */
     private void fijarCreadoEn(Producto p, String fecha) {
         entityManager.flush();

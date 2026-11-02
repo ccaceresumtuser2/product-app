@@ -1,5 +1,6 @@
 package com.app.productos.service;
 
+import com.app.productos.exception.ConflictoException;
 import com.app.productos.exception.RecursoNoEncontradoException;
 import com.app.productos.model.Producto;
 import com.app.productos.repository.ProductoRepository;
@@ -86,7 +87,31 @@ public class ProductoService {
      */
     @Transactional
     public Producto actualizar(Long id, Producto datos) {
-        Producto producto = obtener(id);
+        return guardarCambios(obtener(id), datos);
+    }
+
+    /**
+     * Actualiza el producto cuyo nombre coincide exactamente con {@code nombre} (sin distinguir mayúsculas).
+     * El cuerpo puede traer un nombre nuevo, así que también sirve para renombrar.
+     *
+     * @throws RecursoNoEncontradoException si ningún producto tiene ese nombre (se responde 404)
+     * @throws ConflictoException si hay más de uno con ese nombre (se responde 409): editar sería ambiguo
+     */
+    @Transactional
+    public Producto actualizarPorNombre(String nombre, Producto datos) {
+        List<Producto> encontrados = repository.findByNombreIgnoreCase(nombre.trim());
+        if (encontrados.isEmpty()) {
+            throw new RecursoNoEncontradoException("Producto '" + nombre + "' no encontrado");
+        }
+        if (encontrados.size() > 1) {
+            throw new ConflictoException("Hay " + encontrados.size() + " productos llamados '" + nombre
+                    + "'; use PUT /api/productos/{id}");
+        }
+        return guardarCambios(encontrados.getFirst(), datos);
+    }
+
+    /** Copia nombre, descripción, precio y stock; id y creadoEn no se tocan. */
+    private Producto guardarCambios(Producto producto, Producto datos) {
         producto.setNombre(datos.getNombre());
         producto.setDescripcion(datos.getDescripcion());
         producto.setPrecio(datos.getPrecio());

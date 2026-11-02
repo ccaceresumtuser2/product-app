@@ -1,5 +1,6 @@
 package com.app.productos.controller;
 
+import com.app.productos.exception.ConflictoException;
 import com.app.productos.exception.RecursoNoEncontradoException;
 import com.app.productos.model.Producto;
 import com.app.productos.service.ProductoService;
@@ -291,6 +292,68 @@ class ProductoControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.nombre").value("Mouse"))
                 .andExpect(jsonPath("$.message").value("Producto actualizado"));
+    }
+
+    // ---------- PUT /api/productos?nombre= ----------
+
+    @Test
+    void actualizarPorNombre_valido_retorna200() throws Exception {
+        when(service.actualizarPorNombre(eq("Monitor 24\""), any(Producto.class))).thenReturn(mouse);
+
+        // nombre con espacio y comillas: MockMvc lo codifica en la URL como haría el cliente
+        mockMvc.perform(put(URL).param("nombre", "Monitor 24\"")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nombre":"Mouse","precio":15990,"stock":10}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("success"))
+                .andExpect(jsonPath("$.message").value("Producto actualizado"));
+
+        verify(service).actualizarPorNombre(eq("Monitor 24\""), any(Producto.class));
+    }
+
+    @Test
+    void actualizarPorNombre_inexistente_retorna404() throws Exception {
+        when(service.actualizarPorNombre(eq("Silla"), any(Producto.class)))
+                .thenThrow(new RecursoNoEncontradoException("Producto 'Silla' no encontrado"));
+
+        mockMvc.perform(put(URL).param("nombre", "Silla")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nombre":"Silla","precio":1,"stock":1}
+                                """))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Producto 'Silla' no encontrado"));
+    }
+
+    @Test
+    void actualizarPorNombre_nombreRepetido_retorna409() throws Exception {
+        when(service.actualizarPorNombre(eq("Mouse"), any(Producto.class)))
+                .thenThrow(new ConflictoException("Hay 2 productos llamados 'Mouse'; use PUT /api/productos/{id}"));
+
+        mockMvc.perform(put(URL).param("nombre", "Mouse")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nombre":"Mouse","precio":1,"stock":1}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value("error"))
+                .andExpect(jsonPath("$.code").value(409))
+                .andExpect(jsonPath("$.message").value("Hay 2 productos llamados 'Mouse'; use PUT /api/productos/{id}"));
+    }
+
+    @Test
+    void actualizarPorNombre_cuerpoInvalido_retorna400_yNoLlamaAlServicio() throws Exception {
+        mockMvc.perform(put(URL).param("nombre", "Mouse")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nombre":"","precio":-1,"stock":1}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Datos inválidos"));
+
+        verifyNoInteractions(service);
     }
 
     // ---------- DELETE /api/productos/{id} ----------

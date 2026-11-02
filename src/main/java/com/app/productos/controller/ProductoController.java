@@ -16,6 +16,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 /**
+ * Autor carlos caceresoch
  * Capa web: expone el CRUD de productos en {@code /api/productos}.
  * Solo recibe la petición, valida el cuerpo y delega en {@link ProductoService}.
  * Toda respuesta exitosa va envuelta en {@link ApiResponse};
@@ -79,6 +80,17 @@ public class ProductoController {
     @Operation(summary = "Actualizar producto")
     public ApiResponse<Producto> actualizar(@PathVariable Long id, @Valid @RequestBody Producto producto) {
         return ApiResponse.ok(service.actualizar(id, producto), "Producto actualizado");
+    }
+
+    /**
+     * PUT /api/productos?nombre=Teclado — actualiza el producto con ese nombre exacto (sin distinguir mayúsculas).
+     * El nombre va como query param para admitir espacios, comillas o "/" (ej. {@code Monitor 24"}).
+     * 404 si no existe, 409 si hay varios con el mismo nombre.
+     */
+    @PutMapping(params = "nombre")
+    @Operation(summary = "Actualizar producto por nombre")
+    public ApiResponse<Producto> actualizarPorNombre(@RequestParam String nombre, @Valid @RequestBody Producto producto) {
+        return ApiResponse.ok(service.actualizarPorNombre(nombre, producto), "Producto actualizado");
     }
 
     /** DELETE /api/productos/{id} — responde 200 con {@code data: null} para mantener el formato estándar. */

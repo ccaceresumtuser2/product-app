@@ -30,6 +30,12 @@ public class GlobalExceptionHandler {
         return responder(HttpStatus.NOT_FOUND, ApiError.of(404, ex.getMessage()));
     }
 
+    /** Operación ambigua o en conflicto (ej. nombre repetido) → 409 con el mensaje de la excepción. */
+    @ExceptionHandler(ConflictoException.class)
+    public ResponseEntity<ApiError> handleConflicto(ConflictoException ex) {
+        return responder(HttpStatus.CONFLICT, ApiError.of(409, ex.getMessage()));
+    }
+
     /** Regla de negocio violada (ej. rango de precios invertido) → 400 con el mensaje de la excepción. */
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiError> handleArgumentoInvalido(IllegalArgumentException ex) {
